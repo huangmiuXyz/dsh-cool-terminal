@@ -12,10 +12,12 @@ DeepSeek Harness terminal plugin — a real shell, workspace sync, persistent st
 
 ## Features
 
-- **Grouped by workspace** — Consoles are grouped by your DSH Workspaces automatically, staying tidy no matter how many you open.
+- **Grouped by workspace** — Consoles are grouped by your DSH Workspaces automatically, each folder shows its terminal count, and the whole sidebar can collapse out of view.
 - **Persistent across sessions and reloads** — Shell sessions, scrollback, and the current path are preserved across conversation switches and page reloads, picking up right where you left off.
 - **Per-console command history** — Each console keeps its own history; pressing `↑` never pulls in commands from other consoles.
 - **Common command management** — Add, edit, delete, and use the common commands you create.
+- **Open the live directory** — Open the directory a console is currently in directly in your desktop file manager, even after it has changed with `cd`.
+- **Compact terminal header** — Shows the active terminal's name with tiny icon actions for renaming it, opening its current directory, and closing it.
 - **Inline command completion** — Typing in a console pops matching common commands up under the caret; hovering a row or pressing `↑`/`↓` selects one, and `Enter` fills it into the command line without running it.
 - **Bilingual (English / Chinese)** — Every string the plugin renders follows DSH's language setting and switches live, with new console names minted in the language on screen.
 - **Right sidebar** — The same terminal workbench is also a dockable right-sidebar tab; switching sessions or collapsing the panel keeps every shell running.

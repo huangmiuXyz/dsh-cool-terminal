@@ -30,6 +30,8 @@ export interface ActionResult {
   readonly ok: boolean
   readonly delivered?: boolean
   readonly targetPgid?: number
+  /** Directory opened by an open-folder action, when one was opened. */
+  readonly cwd?: string
   readonly error?: string
 }
 
@@ -95,6 +97,11 @@ export function sendSignal(terminalId: string, signal: string): Promise<ActionRe
 /** Terminate a console's whole process session. */
 export function closeTerminal(terminalId: string): Promise<ActionResult> {
   return postJson('/close', { terminalId })
+}
+
+/** Open one console's current directory in the platform file manager. */
+export function openTerminalFolder(terminalId: string): Promise<ActionResult> {
+  return postJson('/open-folder', { terminalId })
 }
 
 /** Ask the Host to resize a live console's PTY to this surface's grid. */

@@ -1,8 +1,9 @@
 /**
  * One shared UI model for every terminal surface.
  *
- * The account (console lists), the active console, the expanded groups and the
- * common-command list are browser state, not xterm state: the conversation tab
+ * The account (console lists), the active console, the expanded groups, the
+ * sidebar visibility and the common-command list are browser state, not xterm
+ * state: the conversation tab
  * and every right-sidebar body must see and edit the same values. Each surface
  * keeps its own xterm/SSE runtimes (see terminal.tsx), but all of them read and
  * write this single snapshot.
@@ -13,6 +14,8 @@ export interface TerminalUiState {
     readonly account: TerminalAccount;
     readonly selection: TerminalSelection | null;
     readonly expanded: readonly string[];
+    /** Whether the terminal sidebar is collapsed to its narrow icon rail. */
+    readonly sidebarCollapsed: boolean;
     readonly commands: readonly CommandDef[];
 }
 /** A value or a functional update, mirroring React's `useState` setter shape. */
@@ -23,6 +26,7 @@ export interface TerminalUiModel {
     setAccount(next: UiUpdater<TerminalAccount>): void;
     setSelection(next: UiUpdater<TerminalSelection | null>): void;
     setExpanded(next: UiUpdater<readonly string[]>): void;
+    setSidebarCollapsed(next: UiUpdater<boolean>): void;
     setCommands(next: UiUpdater<readonly CommandDef[]>): void;
 }
 /**

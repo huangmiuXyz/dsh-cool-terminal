@@ -41,11 +41,16 @@ export const TERMINAL_CSS = [
   // (#151517), and presets can move either, so the column stops competing with
   // the background it is laid on. The hairline seam is what still separates the
   // two halves of the tab.
-  '.dsh-ct-side{flex:none;display:flex;flex-direction:column;min-height:0;width:256px;box-sizing:border-box;border-right:.5px solid var(--dsw-alias-border-l3);background:transparent}',
+  '.dsh-ct-side{flex:none;display:flex;flex-direction:column;min-height:0;width:256px;box-sizing:border-box;overflow:hidden;border-right:.5px solid var(--dsw-alias-border-l3);background:transparent;transition:width .16s ease}',
   // Inside the right sidebar the internal workspace column has to leave room
   // for the console. It still dissolves into the panel background; only its
   // width is responsive.
   '[data-dsh-ct-surface="sidebar"] .dsh-ct-side{width:clamp(136px,40%,224px)}',
+  // The whole sidebar can collapse out of the terminal pane. The toggle lives
+  // in the terminal's own top header, so no narrow rail is needed here.
+  '.dsh-ct-side-collapsed{width:0;border-right:0}',
+  '[data-dsh-ct-surface="sidebar"] .dsh-ct-side-collapsed{width:0}',
+  '.dsh-ct-side-collapsed .dsh-ct-side-list-wrap,.dsh-ct-side-collapsed .dsh-ct-side-footer{display:none}',
   // The live tab title seat renders inside the dock chip.
   '.dsh-ct-tab-title{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   // Edge fades: rows dissolve at whichever end hides more list, so the eye can
@@ -82,7 +87,7 @@ export const TERMINAL_CSS = [
   // Sidebar footer: the fixed bar under the scrolling workspace list. A
   // hairline separates it from the list without needing its own background —
   // it rests on the same surface as the rest of the column.
-  '.dsh-ct-side-footer{flex:none;box-sizing:border-box;padding:4px 8px 10px 8px}',
+  '.dsh-ct-side-footer{flex:none;box-sizing:border-box;margin-top:auto;padding:4px 8px 10px 8px}',
   // Quick-action button in the shipped ghost style (the primitives Button
   // module's neutral variant, restated here so the plugin stays one CSS file):
   // transparent surface and primary label at rest, a translucent hover fill,
@@ -100,8 +105,10 @@ export const TERMINAL_CSS = [
   '.dsh-ct-ws-head{display:flex;align-items:center;gap:6px;height:32px;padding:0 6px 0 12px;border-radius:8px;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer;user-select:none}',
   '.dsh-ct-ws-head:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
   // Group marker slot, matching the shipped sidebar's 16px `.slot` that holds
-  // the folder glyph.
-  '.dsh-ct-folder{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--dsw-alias-label-tertiary)}',
+  // the folder glyph. The small badge sits on its corner and reports how many
+  // terminals this folder owns.
+  '.dsh-ct-folder{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--dsw-alias-label-tertiary)}',
+  '.dsh-ct-ws-count{position:absolute;top:-7px;right:-10px;box-sizing:border-box;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--dsw-alias-state-business-primary);color:#fff;font-size:9px;font-weight:600;line-height:15px;text-align:center;pointer-events:none}',
   '.dsh-ct-ws-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}',
   // Reserved space, revealed on row hover or keyboard focus: the title must not
   // shift when the action appears.
@@ -202,12 +209,28 @@ export const TERMINAL_CSS = [
   '.dsh-ct-cmd-edit-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}',
   '.dsh-ct-cmd-input{height:36px}',
 
-  // Console pane. There is no toolbar: the pane is the terminal, and the shell
-  // prints its own prompt (which already carries the directory). No background
-  // either: xterm draws the terminal and is configured to paint transparently
-  // (terminal.tsx `readTheme`), so a wallpaper runs behind the text exactly as
-  // it does behind the trajectory view and behind the sidebar beside it.
+  // Console pane. Its top header carries the active terminal's name and a
+  // row of deliberately tiny action icons. No background either: xterm draws
+  // the terminal and is configured to paint
+  // transparently (terminal.tsx `readTheme`), so a wallpaper runs behind the
+  // text exactly as it does behind the trajectory view and behind the sidebar
+  // beside it.
   '.dsh-ct-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;background:transparent}',
+  '.dsh-ct-main-header{flex:none;display:flex;align-items:center;gap:4px;height:30px;padding:0 8px;border-bottom:.5px solid var(--dsw-alias-border-l3)}',
+  '.dsh-ct-sidebar-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}',
+  '.dsh-ct-sidebar-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+  '.dsh-ct-sidebar-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}',
+  '.dsh-ct-sidebar-toggle-icon{width:11px;height:11px;transition:transform .16s ease}',
+  '.dsh-ct-sidebar-toggle-collapsed .dsh-ct-sidebar-toggle-icon{transform:rotate(180deg)}',
+  '.dsh-ct-header-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:12.5px;font-weight:500}',
+  '.dsh-ct-header-title-input{flex:1;min-width:0;height:20px;box-sizing:border-box;padding:0 4px;border:1px solid var(--dsw-alias-state-business-primary);border-radius:4px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;outline:0}',
+  '.dsh-ct-header-actions{flex:none;display:inline-flex;align-items:center;gap:2px}',
+  '.dsh-ct-header-action{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}',
+  '.dsh-ct-header-action:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+  '.dsh-ct-header-action:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}',
+  '.dsh-ct-header-action:disabled{opacity:.32;cursor:default}',
+  '.dsh-ct-header-action-danger:hover:not(:disabled){color:var(--dsw-alias-state-error-primary)}',
+  '.dsh-ct-header-action-icon{width:11px;height:11px}',
   // Every opened console keeps its element mounted and its xterm instance
   // alive; only the active one is visible, so switching Views keeps scrollback
   // and the shell's own state exactly where they were.

@@ -64,6 +64,9 @@ export const IconFolderClosed = svgIcon('folder-closed')
 /** Sidebar group marker when a Workspace is expanded (assets/folder-opened.svg). */
 export const IconFolderOpened = svgIcon('folder-opened')
 
+/** Sidebar collapse/expand toggle (assets/chevron-left.svg). */
+export const IconChevronLeft = svgIcon('chevron-left')
+
 /** Row overflow trigger glyph (assets/more.svg). */
 export const IconMore = svgIcon('more')
 

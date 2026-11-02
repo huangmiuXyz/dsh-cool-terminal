@@ -22,6 +22,8 @@ export declare const IconTerminal: ({ className }: DshCtIconProps) => React.Reac
 export declare const IconFolderClosed: ({ className }: DshCtIconProps) => React.ReactElement;
 /** Sidebar group marker when a Workspace is expanded (assets/folder-opened.svg). */
 export declare const IconFolderOpened: ({ className }: DshCtIconProps) => React.ReactElement;
+/** Sidebar collapse/expand toggle (assets/chevron-left.svg). */
+export declare const IconChevronLeft: ({ className }: DshCtIconProps) => React.ReactElement;
 /** Row overflow trigger glyph (assets/more.svg). */
 export declare const IconMore: ({ className }: DshCtIconProps) => React.ReactElement;
 /** Add a console (assets/plus.svg). */

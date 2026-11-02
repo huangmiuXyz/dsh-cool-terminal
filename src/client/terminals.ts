@@ -36,6 +36,9 @@ const EXPANDED_KEY = 'dsh-cool-terminal.expanded.v1'
 /** The console the tab last showed. */
 const SELECTION_KEY = 'dsh-cool-terminal.selection.v1'
 
+/** Whether the terminal sidebar is collapsed to its narrow icon rail. */
+const SIDEBAR_COLLAPSED_KEY = 'dsh-cool-terminal.sidebar.collapsed.v1'
+
 /** The active console: its group key plus the console id inside it. */
 export interface TerminalSelection {
   readonly key: string
@@ -299,6 +302,38 @@ export function saveSelection(selection: TerminalSelection | null): void {
   try {
     if (selection === null) window.localStorage.removeItem(SELECTION_KEY)
     else window.localStorage.setItem(SELECTION_KEY, JSON.stringify(selection))
+  } catch {
+    /* persistence is a convenience, never a precondition */
+  }
+}
+
+/**
+ * Read whether the terminal sidebar is collapsed.
+ *
+ * The sidebar starts expanded: collapsing it is a deliberate way to give the
+ * console more room, and an absent preference should not hide the user's
+ * terminals on the first visit.
+ *
+ * @returns true when the sidebar is collapsed.
+ */
+export function loadSidebarCollapsed(): boolean {
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (raw === null) return false
+    const parsed: unknown = JSON.parse(raw)
+    return typeof parsed === 'boolean' ? parsed : false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Persist whether the terminal sidebar is collapsed.
+ * @param collapsed - true when the sidebar is collapsed.
+ */
+export function saveSidebarCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsed))
   } catch {
     /* persistence is a convenience, never a precondition */
   }

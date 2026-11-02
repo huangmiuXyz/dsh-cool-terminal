@@ -23,6 +23,7 @@ export declare const ROUTES: {
     readonly input: "/dsh-cool-terminal/api/input";
     readonly signal: "/dsh-cool-terminal/api/signal";
     readonly close: "/dsh-cool-terminal/api/close";
+    readonly openFolder: "/dsh-cool-terminal/api/open-folder";
     readonly resize: "/dsh-cool-terminal/api/resize";
 };
 export declare function apply(ctx: any): void;

@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, hostname, userInfo } from 'node:os'
 import { basename, join } from 'node:path'
+import { openDirectory, requireDirectory, terminalCwd } from './folder.js'
 
 export const name = 'dsh-cool-terminal'
 
@@ -31,6 +32,7 @@ export const ROUTES = {
   input: '/dsh-cool-terminal/api/input',
   signal: '/dsh-cool-terminal/api/signal',
   close: '/dsh-cool-terminal/api/close',
+  openFolder: '/dsh-cool-terminal/api/open-folder',
   resize: '/dsh-cool-terminal/api/resize',
 } as const
 
@@ -1172,6 +1174,24 @@ async function handleClose(registry: PtyRegistry, req: any, res: any): Promise<v
   })
 }
 
+/**
+ * Open one console's current directory in the platform file manager.
+ *
+ * The shell process is the authority for its current directory: it may have
+ * moved with `cd` since the console opened. The directory is validated before
+ * the desktop command starts, and the command receives it as an argument
+ * rather than through a shell.
+ */
+async function handleOpenFolder(registry: PtyRegistry, req: any, res: any): Promise<void> {
+  await mutateSession(registry, req, res, async (session) => {
+    if (session.exited !== null) return { ok: false, error: 'terminal not running' }
+    const cwd = await terminalCwd(session.pid, session.cwd)
+    const directory = requireDirectory(cwd)
+    await openDirectory(directory)
+    return { ok: true, cwd: directory }
+  })
+}
+
 /** Resize one console's PTY to the grid measured by the calling surface. */
 async function handleResize(registry: PtyRegistry, req: any, res: any): Promise<void> {
   await mutateSession(registry, req, res, async (session, body) => {
@@ -1240,6 +1260,7 @@ export function apply(ctx: any): void {
       route(ROUTES.input, (req, res) => handleInput(registry, req, res)),
       route(ROUTES.signal, (req, res) => handleSignal(registry, req, res)),
       route(ROUTES.close, (req, res) => handleClose(registry, req, res)),
+      route(ROUTES.openFolder, (req, res) => handleOpenFolder(registry, req, res)),
       route(ROUTES.resize, (req, res) => handleResize(registry, req, res)),
     ]
     return () => {

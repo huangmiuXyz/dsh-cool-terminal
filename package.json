@@ -46,7 +46,8 @@
     "check": "pnpm typecheck && pnpm build",
     "prepublishOnly": "pnpm run check",
     "dev": "tsdown --watch",
-    "dev:types": "tsc -p tsconfig.json --watch --emitDeclarationOnly"
+    "dev:types": "tsc -p tsconfig.json --watch --emitDeclarationOnly",
+    "test": "node --test test/*.test.ts"
   },
   "publishConfig": {
     "access": "public",

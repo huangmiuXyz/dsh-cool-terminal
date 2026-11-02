@@ -26,6 +26,7 @@ import {
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
+  IconChevronLeft,
   IconEdit,
   IconFolderClosed,
   IconFolderOpened,
@@ -39,6 +40,7 @@ import {
   closeTerminal,
   fetchContext,
   openTerminal,
+  openTerminalFolder,
   resizeTerminal,
   sendInput,
   streamUrl,
@@ -943,13 +945,24 @@ export function createTerminalView(
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : undefined
     const snapshot = React.useSyncExternalStore(bridge.subscribe, bridge.getSnapshot, bridge.getSnapshot)
     // One shared UI model: the console list, the active console, the expanded
-    // groups and the common commands are the same values in every surface.
+    // groups, the sidebar visibility and the common commands are the same
+    // values in every surface.
     const ui = React.useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot)
-    const { account, selection, expanded, commands } = ui
-    const { setAccount, setSelection, setExpanded, setCommands } = model
+    const { account, selection, expanded, sidebarCollapsed, commands } = ui
+    const { setAccount, setSelection, setExpanded, setSidebarCollapsed, setCommands } = model
     const [sessionCwd, setSessionCwd] = React.useState('')
     const [renamingId, setRenamingId] = React.useState<string | null>(null)
     const [renameDraft, setRenameDraft] = React.useState('')
+    /** Terminal being renamed in the top header, separate from the sidebar row. */
+    const [headerRenameId, setHeaderRenameId] = React.useState<string | null>(null)
+    const [headerRenameDraft, setHeaderRenameDraft] = React.useState('')
+    /** The header's inline rename field. */
+    const headerRenameInput = React.useRef<HTMLInputElement | null>(null)
+    /** Mirror of `headerRenameId` so late effects do not steal its focus. */
+    const headerRenameRef = React.useRef<string | null>(null)
+    headerRenameRef.current = headerRenameId
+    /** Escape/Enter unmounts the header field before its blur can commit it. */
+    const skipHeaderBlurCommit = React.useRef(false)
     /** Console whose row overflow menu is open, if any. */
     const [menuId, setMenuId] = React.useState<string | null>(null)
     /** Trigger of the open menu; its rect anchors the portaled list. */
@@ -1152,7 +1165,7 @@ export function createTerminalView(
       // An open rename field owns the keyboard: a stream reconnect or a late
       // `ensureStarted` that bumps `version` must not steal focus from it.
       // The commands dialog is the same story while it is up.
-      if (renamingRef.current === null && !commandsOpenRef.current) runtime.term.focus()
+      if (renamingRef.current === null && headerRenameRef.current === null && !commandsOpenRef.current) runtime.term.focus()
       const group = rows.find((row) => row.key === activeGroupKey)
       if (group !== undefined) void ensureStarted(runtime, group, sessionId)
       // `version` is what re-runs this after the "mark opened" effect above
@@ -1316,12 +1329,48 @@ export function createTerminalView(
       setAccount(withTerminalList(account, key, renameTerminal(terminalsFor(account, key), id, renameDraft)))
     }
 
+    /** Start renaming the active terminal in the top header. */
+    const beginHeaderRename = (): void => {
+      if (active === undefined) return
+      // Only one rename field may own the keyboard at a time.
+      skipBlurCommit.current = true
+      setRenamingId(null)
+      skipHeaderBlurCommit.current = false
+      setHeaderRenameDraft(active.title)
+      setHeaderRenameId(active.id)
+      window.setTimeout(() => {
+        const input = headerRenameInput.current
+        input?.focus()
+        input?.select()
+      }, 0)
+    }
+
+    /** Commit the active terminal's header rename. */
+    const commitHeaderRename = (): void => {
+      const id = headerRenameId
+      setHeaderRenameId(null)
+      if (id === null || active === undefined || activeGroup === undefined || active.id !== id) return
+      setAccount(withTerminalList(
+        account,
+        activeGroup.key,
+        renameTerminal(terminalsFor(account, activeGroup.key), id, headerRenameDraft),
+      ))
+    }
+
+    /** Abandon the active terminal's header rename. */
+    const cancelHeaderRename = (): void => {
+      setHeaderRenameId(null)
+      setHeaderRenameDraft('')
+    }
+
     const toggleExpanded = (key: string): void => {
       setMenuId(null)
       setExpanded((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
     }
 
     const toggleRename = (terminal: TerminalDef): void => {
+      skipHeaderBlurCommit.current = true
+      setHeaderRenameId(null)
       skipBlurCommit.current = false
       setRenameDraft(terminal.title)
       setRenamingId(terminal.id)
@@ -1355,6 +1404,27 @@ export function createTerminalView(
     })
 
     /**
+     * Open one console's current directory in the desktop file manager.
+     *
+     * The Host reads the shell process's live working directory, so this opens
+     * the directory the terminal is in now — including one reached with `cd` —
+     * rather than the workspace where the console was created. A failure is
+     * written into the console's own scrollback, where the terminal already
+     * reports its own failures.
+     */
+    const openConsoleFolder = async (id: string): Promise<void> => {
+      const runtime = runtimes.get(id)
+      const terminalId = runtime?.terminalId
+      if (runtime === undefined || terminalId === undefined) return
+      const result = await openTerminalFolder(terminalId)
+      if (!result.ok) {
+        const detail = result.error ?? t('terminal.unknown')
+        writeBanner(runtime, t('terminal.openFolderFailed', { detail: trimTail(detail) }))
+      }
+      runtime.term.focus()
+    }
+
+    /**
      * One console row's overflow menu, driven by the shipped Menu primitive: it
      * portals out of the sidebar's scroll clip and owns outside-click, Escape,
      * and repositioning.
@@ -1362,6 +1432,9 @@ export function createTerminalView(
     const renderOverflowMenu = (row: GroupRow, terminal: TerminalDef): React.ReactElement => {
       const menuItems: MenuEntry[] = [
         { id: 'rename', label: t('terminal.rename'), icon: h(IconEdit, { key: 'icon' }) },
+        ...(runtimes.get(terminal.id)?.terminalId === undefined
+          ? []
+          : [{ id: 'open-folder', label: t('terminal.openFolder'), icon: h(IconFolderOpened, { key: 'icon' }) }]),
         {
           id: 'remove',
           label: t('terminal.remove'),
@@ -1389,6 +1462,7 @@ export function createTerminalView(
           onSelect: (id: string) => {
             setMenuId(null)
             if (id === 'rename') toggleRename(terminal)
+            else if (id === 'open-folder') void openConsoleFolder(terminal.id)
             else if (id === 'remove') removeConsole(row.key, terminal.id)
           },
           onClose: () => setMenuId(null),
@@ -1455,7 +1529,16 @@ export function createTerminalView(
       },
       // The shipped sidebar swaps its folder for a hover arrow; here the
       // folder alone carries the state (open vs closed), so it is stable.
-      h('span', { key: 'folder', className: 'dsh-ct-folder' }, h(isCollapsed ? IconFolderClosed : IconFolderOpened)),
+      h('span', { key: 'folder', className: 'dsh-ct-folder' },
+        h(isCollapsed ? IconFolderClosed : IconFolderOpened),
+        list.length > 0
+          ? h('span', {
+            key: 'count',
+            className: 'dsh-ct-ws-count',
+            title: t('sidebar.terminalCount', { count: list.length }),
+          }, String(list.length))
+          : null,
+      ),
       h('span', { key: 'title', className: 'dsh-ct-ws-title' }, row.title),
       h('button', {
         key: 'add',
@@ -1530,7 +1613,13 @@ export function createTerminalView(
       return h('div', { key: row.key, className: 'dsh-ct-ws' }, children)
     }
 
-    const sidebar = h('aside', { key: 'side', className: 'dsh-ct-side' },
+    const sidebarToggleLabel = sidebarCollapsed
+      ? t('sidebar.expand')
+      : t('sidebar.collapse')
+    const sidebar = h('aside', {
+      key: 'side',
+      className: `dsh-ct-side${sidebarCollapsed ? ' dsh-ct-side-collapsed' : ''}`,
+    },
       h('div', { key: 'list', className: 'dsh-ct-side-list-wrap', ref: listWrap },
         h('div', { key: 'scroll', className: 'dsh-ct-side-list', ref: listScroll },
           rows.length === 0
@@ -1632,11 +1721,87 @@ export function createTerminalView(
       },
     }, completion !== null && completion.consoleId === id ? renderCompletion(completion) : null))
 
-    // No toolbar: the shell prints its own prompt (which already carries the
-    // directory) and Ctrl+C interrupts the foreground command, exactly as in a
-    // system terminal. A console that fails to start reports it in its own
-    // scrollback, so there is no chrome to keep the error visible.
+    // The terminal pane's top header keeps the active terminal's name and
+    // gives the shell's few global actions one compact home. Every action is
+    // a deliberately tiny icon; only the name is text.
+    const activeRuntime = activeId === undefined ? undefined : runtimes.get(activeId)
+    const headerRenaming = active !== undefined && headerRenameId === active.id
     const main = h('section', { key: 'main', className: 'dsh-ct-main' },
+      h('header', { key: 'header', className: 'dsh-ct-main-header' },
+        h('button', {
+          key: 'sidebar-toggle',
+          type: 'button',
+          className: `dsh-ct-sidebar-toggle${sidebarCollapsed ? ' dsh-ct-sidebar-toggle-collapsed' : ''}`,
+          title: sidebarToggleLabel,
+          'aria-label': sidebarToggleLabel,
+          'aria-expanded': !sidebarCollapsed,
+          onClick: () => setSidebarCollapsed(!sidebarCollapsed),
+        }, h(IconChevronLeft, { className: 'dsh-ct-sidebar-toggle-icon' })),
+        headerRenaming
+          ? h('input', {
+            key: 'title-input',
+            ref: headerRenameInput,
+            className: 'dsh-ct-header-title-input',
+            value: headerRenameDraft,
+            spellCheck: false,
+            'aria-label': t('terminal.rename'),
+            onChange: (event: React.ChangeEvent<HTMLInputElement>) => setHeaderRenameDraft(event.target.value),
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter') {
+                skipHeaderBlurCommit.current = true
+                commitHeaderRename()
+              } else if (event.key === 'Escape') {
+                skipHeaderBlurCommit.current = true
+                cancelHeaderRename()
+              }
+            },
+            onBlur: () => {
+              if (skipHeaderBlurCommit.current) {
+                skipHeaderBlurCommit.current = false
+                return
+              }
+              commitHeaderRename()
+            },
+          })
+          : h('span', {
+            key: 'title',
+            className: 'dsh-ct-header-title',
+            title: active?.title ?? t('view.tab'),
+          }, active?.title ?? t('view.tab')),
+        h('div', { key: 'actions', className: 'dsh-ct-header-actions' },
+          h('button', {
+            key: 'rename',
+            type: 'button',
+            className: 'dsh-ct-header-action',
+            title: t('terminal.rename'),
+            'aria-label': t('terminal.rename'),
+            disabled: active === undefined || headerRenaming,
+            onClick: beginHeaderRename,
+          }, h(IconEdit, { className: 'dsh-ct-header-action-icon' })),
+          h('button', {
+            key: 'open-folder',
+            type: 'button',
+            className: 'dsh-ct-header-action',
+            title: t('terminal.openFolder'),
+            'aria-label': t('terminal.openFolder'),
+            disabled: activeRuntime?.terminalId === undefined,
+            onClick: () => {
+              if (activeId !== undefined) void openConsoleFolder(activeId)
+            },
+          }, h(IconFolderOpened, { className: 'dsh-ct-header-action-icon' })),
+          h('button', {
+            key: 'close',
+            type: 'button',
+            className: 'dsh-ct-header-action dsh-ct-header-action-danger',
+            title: t('terminal.close'),
+            'aria-label': t('terminal.close'),
+            disabled: active === undefined || activeGroup === undefined,
+            onClick: () => {
+              if (active !== undefined && activeGroup !== undefined) removeConsole(activeGroup.key, active.id)
+            },
+          }, h(IconTrash, { className: 'dsh-ct-header-action-icon' })),
+        ),
+      ),
       h('div', { key: 'out', className: 'dsh-ct-out' },
         screenNodes,
         openIds.length === 0

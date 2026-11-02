@@ -121,6 +121,21 @@ export declare function loadSelection(): TerminalSelection | null;
  * @param selection - active console, or null.
  */
 export declare function saveSelection(selection: TerminalSelection | null): void;
+/**
+ * Read whether the terminal sidebar is collapsed.
+ *
+ * The sidebar starts expanded: collapsing it is a deliberate way to give the
+ * console more room, and an absent preference should not hide the user's
+ * terminals on the first visit.
+ *
+ * @returns true when the sidebar is collapsed.
+ */
+export declare function loadSidebarCollapsed(): boolean;
+/**
+ * Persist whether the terminal sidebar is collapsed.
+ * @param collapsed - true when the sidebar is collapsed.
+ */
+export declare function saveSidebarCollapsed(collapsed: boolean): void;
 /** The Live Workspace row fields this UI reads. */
 export interface WorkspaceRow {
     readonly workspaceId: string;

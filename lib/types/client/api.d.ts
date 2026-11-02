@@ -25,6 +25,8 @@ export interface ActionResult {
     readonly ok: boolean;
     readonly delivered?: boolean;
     readonly targetPgid?: number;
+    /** Directory opened by an open-folder action, when one was opened. */
+    readonly cwd?: string;
     readonly error?: string;
 }
 /** Ask which workdir the Host would use for this session. */
@@ -52,6 +54,8 @@ export declare function sendInput(terminalId: string, data: string): Promise<Act
 export declare function sendSignal(terminalId: string, signal: string): Promise<ActionResult>;
 /** Terminate a console's whole process session. */
 export declare function closeTerminal(terminalId: string): Promise<ActionResult>;
+/** Open one console's current directory in the platform file manager. */
+export declare function openTerminalFolder(terminalId: string): Promise<ActionResult>;
 /** Ask the Host to resize a live console's PTY to this surface's grid. */
 export declare function resizeTerminal(terminalId: string, cols: number, rows: number): Promise<ActionResult>;
 /** The SSE endpoint streaming one console's output. */
