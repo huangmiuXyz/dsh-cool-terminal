@@ -39,11 +39,13 @@ import {
   closeTerminal,
   fetchContext,
   openTerminal,
+  resizeTerminal,
   sendInput,
   streamUrl,
 } from './api.js'
 import { CommandsDialog } from './commands-dialog.js'
-import { loadCommands, saveCommands, type CommandDef } from './commands.js'
+import type { CommandDef } from './commands.js'
+import type { TerminalUiModel } from './model.js'
 import {
   anchorOf,
   emptySession,
@@ -60,20 +62,12 @@ import {
 import {
   SESSION_KEY,
   addTerminal,
-  loadAccount,
-  loadExpanded,
-  loadSelection,
   moveTerminal,
   removeTerminal,
   renameTerminal,
-  saveAccount,
-  saveExpanded,
-  saveSelection,
   terminalsFor,
   withTerminalList,
-  type TerminalAccount,
   type TerminalDef,
-  type TerminalSelection,
   type WorkspaceBridge,
 } from './terminals.js'
 import type { Translate } from './locales.js'
@@ -138,6 +132,11 @@ interface Runtime {
    * completion behaves exactly as it did before any of this existed.
    */
   foregroundKnown: boolean
+  /** Last grid sent to the Host, so repeated fits do not spam /resize. */
+  cols: number
+  rows: number
+  /** Watches the mounted screen wrapper while this surface shows the console. */
+  observer: ResizeObserver | undefined
 }
 
 /**
@@ -452,10 +451,9 @@ const DEFAULT_CODE_FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liber
 /**
  * Resolve the code font the rest of the UI uses.
  *
- * Read once, when a console is created: the PTY's geometry is fixed at spawn
- * (the platform's terminal primitive exposes no resize verb), so the font must
- * not change afterwards or the shell's line wrapping would stop matching the
- * screen.
+ * Read once, when a console is created: xterm's font cannot change without
+ * reopening the terminal, so the font must not change afterwards or the
+ * shell's line wrapping would stop matching the screen.
  */
 function readCodeFont(): string {
   const family = bodyStyle()?.getPropertyValue('--ds-font-family-code').trim() ?? ''
@@ -520,12 +518,17 @@ function queueInput(runtime: Runtime, payload: string): void {
     .catch(() => undefined)
 }
 
+/** Which surface a terminal engine is mounted in. */
+export type TerminalSurface = 'conversation' | 'sidebar'
+
 /** The result of {@link createTerminalView}. */
 export interface TerminalViewHandle {
-  /** The Conversation View component to register into `conversation.view`. */
+  /** The View component to register into a surface. */
   readonly View: React.ComponentType<any>
-  /** Close every PTY and dispose every xterm instance. */
+  /** Plugin teardown: close every PTY this engine knows about and dispose xterm. */
   dispose(): void
+  /** Surface teardown: detach xterm/SSE only, never close the shared PTY. */
+  disposeSurface(): void
 }
 
 /**
@@ -533,9 +536,16 @@ export interface TerminalViewHandle {
  * @param bridge - late-bound Workspace list source.
  * @param t - translator for every string the tab renders, including the ones
  *   written outside React (the failure banner, the exit status).
- * @returns the Conversation View component plus a plugin-lifetime disposer.
+ * @param model - the shared UI model every surface reads and writes.
+ * @param surface - which surface this engine belongs to.
+ * @returns the View component plus its teardown handles.
  */
-export function createTerminalView(bridge: WorkspaceBridge, t: Translate): TerminalViewHandle {
+export function createTerminalView(
+  bridge: WorkspaceBridge,
+  t: Translate,
+  model: TerminalUiModel,
+  surface: TerminalSurface = 'conversation',
+): TerminalViewHandle {
   /** Live consoles; survives this View being unmounted. */
   const runtimes = new Map<string, Runtime>()
   /** Console ids whose screen element is mounted, in first-activation order. */
@@ -554,6 +564,11 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
    * {@link ViewContext}).
    */
   let viewContext: ViewContext | undefined
+
+  /**
+   * Set by either teardown; a late `open` answer must not attach to a dead surface.
+   */
+  let disposed = false
 
   /**
    * Re-render the mounted View, if one is mounted.
@@ -591,7 +606,8 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
   // `data-ds-dark-theme` for the base palette and writes a preset's overrides
   // as inline variables. Watching both keeps live consoles in step with a
   // theme switch instead of waiting for the next activation. Only colors are
-  // reapplied — font metrics stay put, because the PTY cannot be resized.
+  // reapplied — font metrics stay put, because changing them would desynchronize
+  // the shell's wrapping from the screen.
   let themeObserver: MutationObserver | undefined
   function ensureThemeObserver(): void {
     if (themeObserver !== undefined) return
@@ -616,8 +632,8 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
       // terminal, which would cost this console its element and scrollback.
       allowTransparency: true,
       cursorBlink: true,
-      // The code font is fixed for this console's lifetime: the PTY's geometry
-      // is settled at spawn, so a later font change would desynchronize the
+      // The code font is fixed for this console's lifetime: xterm cannot swap
+      // it without a reopen, so a later font change would desynchronize the
       // shell's wrapping from the screen.
       fontFamily: readCodeFont(),
       fontSize: 12.5,
@@ -643,6 +659,9 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
       completion: emptySession(),
       foreground: null,
       foregroundKnown: false,
+      cols: 0,
+      rows: 0,
+      observer: undefined,
     }
     // Every keystroke, including control characters such as Ctrl+C, goes to the
     // PTY verbatim; the shell echoes it, which is what puts the cursor inline
@@ -705,11 +724,68 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
     runtime.source = undefined
   }
 
-  /** Close the PTY and dispose the xterm instance behind one console. */
-  function disposeRuntime(runtime: Runtime): void {
-    if (runtime.terminalId !== undefined) void closeTerminal(runtime.terminalId)
+  /**
+   * Measure the mounted screen and tell the Host when the grid changed.
+   *
+   * xterm can always resize its own viewport; the PTY has one size, so the last
+   * surface to measure wins. That is the best a single shared shell can do when
+   * the same console is visible in two panes.
+   */
+  function syncSize(runtime: Runtime): void {
+    if (runtime.element === undefined) return
+    try {
+      runtime.fit.fit()
+    } catch {
+      return
+    }
+    const { cols, rows } = runtime.term
+    if (cols <= 0 || rows <= 0) return
+    if (cols === runtime.cols && rows === runtime.rows) return
+    runtime.cols = cols
+    runtime.rows = rows
+    const terminalId = runtime.terminalId
+    if (terminalId === undefined) return
+    void resizeTerminal(terminalId, cols, rows)
+  }
+
+  /** Re-measure after a dock/panel resize without doing it per observer frame. */
+  function observeSize(runtime: Runtime, element: HTMLDivElement): void {
+    runtime.observer?.disconnect()
+    runtime.observer = undefined
+    if (typeof ResizeObserver === 'undefined') {
+      syncSize(runtime)
+      return
+    }
+    let frame = 0
+    const update = (): void => {
+      if (frame !== 0) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        syncSize(runtime)
+      })
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    runtime.observer = observer
+    syncSize(runtime)
+  }
+
+  /** Detach this surface's screen and stream; the shared PTY keeps running. */
+  function detachRuntime(runtime: Runtime): void {
+    runtime.observer?.disconnect()
+    runtime.observer = undefined
     detachStream(runtime)
-    runtime.term.dispose()
+    try {
+      runtime.term.dispose()
+    } catch {
+      /* an xterm disposed by an earlier teardown is not an error */
+    }
+  }
+
+  /** Close the shared PTY as well; only explicit deletion / plugin teardown use this. */
+  function closeRuntime(runtime: Runtime): void {
+    if (runtime.terminalId !== undefined) void closeTerminal(runtime.terminalId)
+    detachRuntime(runtime)
   }
 
   /**
@@ -808,8 +884,8 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
   /**
    * Size the screen and ask the Host for a PTY, exactly once per console.
    *
-   * The subprocess seam exposes no resize verb, so this measurement is the
-   * size the shell lives at for its whole lifetime.
+   * This measurement is the size the shell starts at; the surface keeps
+   * reporting later changes through `/resize` (see {@link observeSize}).
    *
    * Repaints go through {@link bumpView}: this runs in an effect, but the
    * `await` below can outlive the mount that called it, so the re-render must
@@ -836,6 +912,10 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
       // `runtime.id` is the console id; the Host uses it to hand back a shell
       // this console already owns, which is what survives a page reload.
       const result = await openTerminal(sessionId, workspaceId, runtime.term.cols, runtime.term.rows, runtime.id)
+      // The surface may have been torn down while the request was in flight.
+      // The PTY it opened is left running: another surface may already be
+      // using it, and "the shell leaves" is exactly the semantics here.
+      if (disposed) return
       if (result.terminalId === undefined || result.terminalId === '') {
         const detail = result.error ?? t('terminal.unknown')
         setStatus(runtime, 'failed', detail)
@@ -846,6 +926,13 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
       runtime.terminalId = result.terminalId
       setStatus(runtime, 'live')
       attachStream(runtime)
+      // Align the Host's PTY with this surface's grid: an existing shell may
+      // have been created at another size. The remembered grid is cleared
+      // first, so this first measurement is always sent rather than being
+      // skipped as "already the size we reported".
+      runtime.cols = 0
+      runtime.rows = 0
+      syncSize(runtime)
       bumpView()
     } finally {
       runtime.opening = false
@@ -855,9 +942,12 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
   function TerminalView(props: any): React.ReactElement {
     const sessionId = typeof props?.sessionId === 'string' ? props.sessionId : undefined
     const snapshot = React.useSyncExternalStore(bridge.subscribe, bridge.getSnapshot, bridge.getSnapshot)
-    const [account, setAccount] = React.useState<TerminalAccount>(() => loadAccount(t('terminal.untitled')))
+    // One shared UI model: the console list, the active console, the expanded
+    // groups and the common commands are the same values in every surface.
+    const ui = React.useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot)
+    const { account, selection, expanded, commands } = ui
+    const { setAccount, setSelection, setExpanded, setCommands } = model
     const [sessionCwd, setSessionCwd] = React.useState('')
-    const [selection, setSelection] = React.useState<TerminalSelection | null>(() => loadSelection())
     const [renamingId, setRenamingId] = React.useState<string | null>(null)
     const [renameDraft, setRenameDraft] = React.useState('')
     /** Console whose row overflow menu is open, if any. */
@@ -872,8 +962,6 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
     /** The insertion slot the drag currently hovers, inside `drag.key`'s
      *  group; null once the pointer leaves that group's list. */
     const [slot, setSlot] = React.useState<number | null>(null)
-    /** Groups the user expanded; anything absent is collapsed. */
-    const [expanded, setExpanded] = React.useState<readonly string[]>(() => loadExpanded())
     const [version, setVersion] = React.useState(0)
     const bump = React.useCallback((): void => setVersion((value) => value + 1), [])
     /** Escape unmounts the rename input, and the unmount fires blur; this
@@ -891,7 +979,6 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
     /** The common-commands dialog, and the commands it manages (persisted in
      *  `commands.ts`; the dialog only renders and reports changes upward). */
     const [commandsOpen, setCommandsOpen] = React.useState(false)
-    const [commands, setCommands] = React.useState<CommandDef[]>(() => loadCommands())
     /** Mirror of `commandsOpen` for effects that must not depend on it: the
      *  dialog owns the keyboard while it is up, so a stream reconnect that
      *  bumps `version` must not refocus the terminal out of its inputs. */
@@ -957,24 +1044,6 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
 
     const rowSignature = rows.map((row) => row.key).join('|')
 
-    React.useEffect(() => {
-      saveAccount(account)
-    }, [account])
-
-    React.useEffect(() => {
-      saveExpanded(expanded)
-    }, [expanded])
-
-    // Remember the active console: the next page load reopens this one rather
-    // than the first console of the first group.
-    React.useEffect(() => {
-      saveSelection(selection)
-    }, [selection])
-
-    React.useEffect(() => {
-      saveCommands(commands)
-    }, [commands])
-
     // Keep a valid selection: prefer the restored console, then the Workspace
     // the session lives in, and skip groups the user has emptied.
     React.useEffect(() => {
@@ -995,6 +1064,28 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
       const target = populated.find((row) => row.kind === 'workspace' && normalizePath(row.path) === cwd) ?? populated[0]
       setSelection({ key: target.key, terminalId: terminalsFor(account, target.key)[0].id })
     }, [rowSignature, account, selection, sessionCwd, rows])
+
+    // A console deleted in another surface disappears from the shared account.
+    // Drop this surface's xterm/SSE for it, but do not close the PTY again: the
+    // surface that deleted it already did.
+    React.useEffect(() => {
+      const live = new Set<string>()
+      for (const list of Object.values(account)) {
+        for (const terminal of list) live.add(terminal.id)
+      }
+      let changed = false
+      for (const id of [...openIds]) {
+        if (live.has(id)) continue
+        const runtime = runtimes.get(id)
+        if (runtime !== undefined) detachRuntime(runtime)
+        runtimes.delete(id)
+        screens.delete(id)
+        const index = openIds.indexOf(id)
+        if (index >= 0) openIds.splice(index, 1)
+        changed = true
+      }
+      if (changed) bump()
+    }, [account, bump])
 
     const activeGroup = selection === null ? undefined : rows.find((row) => row.key === selection.key)
     const activeList = activeGroup === undefined ? [] : terminalsFor(account, activeGroup.key)
@@ -1033,6 +1124,7 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
           created.term.open(element)
           created.element = element
           runtimes.set(id, created)
+          observeSize(created, element)
           continue
         }
         if (runtime.element === element) continue
@@ -1040,6 +1132,7 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
         if (own !== undefined && own !== null) element.appendChild(own)
         runtime.element = element
         runtime.term.refresh(0, Math.max(0, runtime.term.rows - 1))
+        observeSize(runtime, element)
       }
     })
 
@@ -1207,7 +1300,7 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
 
       const runtime = runtimes.get(id)
       if (runtime !== undefined) {
-        disposeRuntime(runtime)
+        closeRuntime(runtime)
         runtimes.delete(id)
       }
       screens.delete(id)
@@ -1567,22 +1660,39 @@ export function createTerminalView(bridge: WorkspaceBridge, t: Translate): Termi
 
     return h('div', {
       className: 'dsh-ct-root',
+      'data-dsh-ct-surface': surface,
       // The shell's full-bleed opt-in, the same hook ui-trajectory renders:
       // it drops the transcript width handles and hands this View the whole
-      // area instead of the transcript's content column.
-      'data-conversation-composer-overlay': '',
+      // area instead of the transcript's content column. It is a
+      // conversation-shell hook only; the dock panel owns its own width.
+      ...(surface === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}),
     }, sidebar, main, commandsDialog)
   }
 
   return {
     View: TerminalView,
     dispose(): void {
+      disposed = true
       themeObserver?.disconnect()
       themeObserver = undefined
       // Drop the View's context first: from here on the keystroke path and
       // the stream handlers have nothing mounted to reach (see `ViewContext`).
       viewContext = undefined
-      for (const runtime of runtimes.values()) disposeRuntime(runtime)
+      for (const runtime of runtimes.values()) closeRuntime(runtime)
+      runtimes.clear()
+      screens.clear()
+      openIds.length = 0
+    },
+    disposeSurface(): void {
+      // A surface going away must not end the shared shell: only an explicit
+      // console deletion or the plugin's own teardown may do that. The xterm
+      // instance and this surface's SSE stream are released here; the Host
+      // keeps the PTY alive for whoever attaches next.
+      disposed = true
+      themeObserver?.disconnect()
+      themeObserver = undefined
+      viewContext = undefined
+      for (const runtime of runtimes.values()) detachRuntime(runtime)
       runtimes.clear()
       screens.clear()
       openIds.length = 0

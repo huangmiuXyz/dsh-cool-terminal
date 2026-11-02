@@ -60,8 +60,8 @@ export function fetchContext(sessionId?: string): Promise<ContextResult> {
  * Allocate a real PTY for one console.
  *
  * `cols`/`rows` are the browser's measurement of the visible terminal: the
- * subprocess seam exposes no resize verb, so the size chosen here is the size
- * the shell lives at for its whole lifetime.
+ * size the shell starts at. It is not fixed — the surface re-measures itself
+ * and calls {@link resizeTerminal} whenever the grid changes.
  *
  * `workspaceId` names the Workspace the terminal must start in; the Host
  * resolves its directory from its own registry. Omitting it uses the session's
@@ -95,6 +95,11 @@ export function sendSignal(terminalId: string, signal: string): Promise<ActionRe
 /** Terminate a console's whole process session. */
 export function closeTerminal(terminalId: string): Promise<ActionResult> {
   return postJson('/close', { terminalId })
+}
+
+/** Ask the Host to resize a live console's PTY to this surface's grid. */
+export function resizeTerminal(terminalId: string, cols: number, rows: number): Promise<ActionResult> {
+  return postJson('/resize', { terminalId, cols, rows })
 }
 
 /** The SSE endpoint streaming one console's output. */

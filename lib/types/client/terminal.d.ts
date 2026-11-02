@@ -18,21 +18,28 @@
  * than captured from whichever mount happened to create them.
  */
 import * as React from 'react';
+import type { TerminalUiModel } from './model.js';
 import { type WorkspaceBridge } from './terminals.js';
 import type { Translate } from './locales.js';
+/** Which surface a terminal engine is mounted in. */
+export type TerminalSurface = 'conversation' | 'sidebar';
 /** The result of {@link createTerminalView}. */
 export interface TerminalViewHandle {
-    /** The Conversation View component to register into `conversation.view`. */
+    /** The View component to register into a surface. */
     readonly View: React.ComponentType<any>;
-    /** Close every PTY and dispose every xterm instance. */
+    /** Plugin teardown: close every PTY this engine knows about and dispose xterm. */
     dispose(): void;
+    /** Surface teardown: detach xterm/SSE only, never close the shared PTY. */
+    disposeSurface(): void;
 }
 /**
  * Build the View component and its teardown.
  * @param bridge - late-bound Workspace list source.
  * @param t - translator for every string the tab renders, including the ones
  *   written outside React (the failure banner, the exit status).
- * @returns the Conversation View component plus a plugin-lifetime disposer.
+ * @param model - the shared UI model every surface reads and writes.
+ * @param surface - which surface this engine belongs to.
+ * @returns the View component plus its teardown handles.
  */
-export declare function createTerminalView(bridge: WorkspaceBridge, t: Translate): TerminalViewHandle;
+export declare function createTerminalView(bridge: WorkspaceBridge, t: Translate, model: TerminalUiModel, surface?: TerminalSurface): TerminalViewHandle;
 //# sourceMappingURL=terminal.d.ts.map

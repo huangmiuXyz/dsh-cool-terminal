@@ -16,6 +16,7 @@ export declare const en: {
     readonly 'sidebar.session': "Current session";
     readonly 'sidebar.empty': "No workspaces";
     readonly 'sidebar.new': "New terminal";
+    readonly 'sidebar.guideDescription': "A shared terminal workspace, grouped by project";
     readonly 'main.hint': "Click ＋ on a workspace on the left to open a terminal";
     readonly 'terminal.untitled': "Terminal";
     readonly 'terminal.autoTitle': "Terminal {n}";

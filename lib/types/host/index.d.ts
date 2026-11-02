@@ -8,9 +8,9 @@
  *
  * The terminal itself is a real PTY obtained from the `subprocess` seam
  * (`spawnTerminal`): this half only owns the registry, the bounded replay
- * buffer, and the SSE fan-out. Sizing is fixed at spawn time because the seam
- * exposes no resize verb — the browser measures its viewport before asking for
- * a terminal, so the initial size is the size the user sees.
+ * buffer, and the SSE fan-out. Sizing starts from the browser's measurement
+ * and follows it afterwards — a surface that shows the console reports its
+ * grid through the `/resize` route, so the shell matches the pane it is in.
  */
 export declare const name = "dsh-cool-terminal";
 /** The web carrier is a hard dependency: without it there is no route to serve. */
@@ -23,6 +23,7 @@ export declare const ROUTES: {
     readonly input: "/dsh-cool-terminal/api/input";
     readonly signal: "/dsh-cool-terminal/api/signal";
     readonly close: "/dsh-cool-terminal/api/close";
+    readonly resize: "/dsh-cool-terminal/api/resize";
 };
 export declare function apply(ctx: any): void;
 //# sourceMappingURL=index.d.ts.map

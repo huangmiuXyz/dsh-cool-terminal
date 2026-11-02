@@ -8,6 +8,8 @@
  */
 
 import { createTerminalView } from './terminal.js'
+import { createTerminalUiModel } from './model.js'
+import { registerSidebarTerminal } from './sidebar.js'
 import { createWorkspaceBridge } from './terminals.js'
 import { insertTerminalStyles } from './styles.js'
 import {
@@ -97,8 +99,13 @@ export function apply(ctx: any) {
   // The view owns real PTYs and xterm instances held outside React's tree, so
   // unloading this plugin (reload or HMR) closes every shell instead of
   // orphaning it.
-  const { View, dispose } = createTerminalView(bridge, t)
-  ctx.effect(() => () => dispose(), 'dsh-cool-terminal: terminal teardown')
+  // One shared UI model: the conversation tab and every sidebar body read the
+  // same console list, selection, expansion and commands.
+  const model = createTerminalUiModel(t('terminal.untitled'))
+
+  const conversation = createTerminalView(bridge, t, model, 'conversation')
+  ctx.effect(() => () => conversation.dispose(), 'dsh-cool-terminal: terminal teardown')
+  const { View } = conversation
 
   const entry: Record<string, unknown> = {
     name: 'conversation.view',
@@ -112,4 +119,20 @@ export function apply(ctx: any) {
   if (locale !== undefined) entry.locale = NS
 
   slots.inject('conversation.view', () => slots.register(entry, View))
+
+  // The right sidebar is an OPTIONAL collaborator exactly like Workspace and
+  // locale: a composition without it keeps the conversation tab. `ctx.inject`
+  // waits for a late service instead of probing once at apply time.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['sidebarRightTabs'], (sidebarCtx: any) => {
+      registerSidebarTerminal({
+        ctx: sidebarCtx,
+        slots,
+        t,
+        locale: locale !== undefined,
+        bridge,
+        model,
+      })
+    })
+  }
 }

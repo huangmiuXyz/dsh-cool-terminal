@@ -42,6 +42,12 @@ export const TERMINAL_CSS = [
   // the background it is laid on. The hairline seam is what still separates the
   // two halves of the tab.
   '.dsh-ct-side{flex:none;display:flex;flex-direction:column;min-height:0;width:256px;box-sizing:border-box;border-right:.5px solid var(--dsw-alias-border-l3);background:transparent}',
+  // Inside the right sidebar the internal workspace column has to leave room
+  // for the console. It still dissolves into the panel background; only its
+  // width is responsive.
+  '[data-dsh-ct-surface="sidebar"] .dsh-ct-side{width:clamp(136px,40%,224px)}',
+  // The live tab title seat renders inside the dock chip.
+  '.dsh-ct-tab-title{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   // Edge fades: rows dissolve at whichever end hides more list, so the eye can
   // tell there is something above/below the fold.
   //

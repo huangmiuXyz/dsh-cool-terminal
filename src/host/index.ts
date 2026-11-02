@@ -8,9 +8,9 @@
  *
  * The terminal itself is a real PTY obtained from the `subprocess` seam
  * (`spawnTerminal`): this half only owns the registry, the bounded replay
- * buffer, and the SSE fan-out. Sizing is fixed at spawn time because the seam
- * exposes no resize verb — the browser measures its viewport before asking for
- * a terminal, so the initial size is the size the user sees.
+ * buffer, and the SSE fan-out. Sizing starts from the browser's measurement
+ * and follows it afterwards — a surface that shows the console reports its
+ * grid through the `/resize` route, so the shell matches the pane it is in.
  */
 
 import { createHash } from 'node:crypto'
@@ -31,6 +31,7 @@ export const ROUTES = {
   input: '/dsh-cool-terminal/api/input',
   signal: '/dsh-cool-terminal/api/signal',
   close: '/dsh-cool-terminal/api/close',
+  resize: '/dsh-cool-terminal/api/resize',
 } as const
 
 /** Signals the subprocess terminal primitive accepts for the foreground group. */
@@ -1171,6 +1172,20 @@ async function handleClose(registry: PtyRegistry, req: any, res: any): Promise<v
   })
 }
 
+/** Resize one console's PTY to the grid measured by the calling surface. */
+async function handleResize(registry: PtyRegistry, req: any, res: any): Promise<void> {
+  await mutateSession(registry, req, res, async (session, body) => {
+    if (session.exited !== null) return { ok: false, error: 'terminal not running' }
+    if (typeof session.handle.resize !== 'function') {
+      return { ok: false, error: 'terminal does not support resize' }
+    }
+    const cols = clampInt(body.cols, MIN_COLS, MAX_COLS, DEFAULT_COLS)
+    const rows = clampInt(body.rows, MIN_ROWS, MAX_ROWS, DEFAULT_ROWS)
+    await session.handle.resize(cols, rows)
+    return { ok: true, cols, rows }
+  })
+}
+
 /** Shared validation for the POST routes that address one console. */
 async function mutateSession(
   registry: PtyRegistry,
@@ -1225,6 +1240,7 @@ export function apply(ctx: any): void {
       route(ROUTES.input, (req, res) => handleInput(registry, req, res)),
       route(ROUTES.signal, (req, res) => handleSignal(registry, req, res)),
       route(ROUTES.close, (req, res) => handleClose(registry, req, res)),
+      route(ROUTES.resize, (req, res) => handleResize(registry, req, res)),
     ]
     return () => {
       for (const dispose of disposers) dispose()
