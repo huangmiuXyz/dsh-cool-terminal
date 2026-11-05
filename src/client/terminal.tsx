@@ -65,6 +65,7 @@ import {
   SESSION_KEY,
   addTerminal,
   moveTerminal,
+  normalizePath,
   removeTerminal,
   renameTerminal,
   terminalsFor,
@@ -72,6 +73,7 @@ import {
   type TerminalDef,
   type WorkspaceBridge,
 } from './terminals.js'
+import type { TerminalFocusBus } from './focus.js'
 import type { Translate } from './locales.js'
 
 /** One entry of the left sidebar: a Workspace, or the session fallback. */
@@ -221,13 +223,6 @@ function snapToDevicePx(value: number): number {
   const dpr = window.devicePixelRatio
   if (typeof dpr !== 'number' || !Number.isFinite(dpr) || dpr <= 0) return value
   return Math.round(value * dpr) / dpr
-}
-
-/** Compare directory spellings that differ only by trailing separators. */
-function normalizePath(value: string): string {
-  if (value === '') return ''
-  const trimmed = value.replace(/[\\/]+$/, '')
-  return trimmed === '' ? value : trimmed
 }
 
 /** Decode one base64 SSE frame into bytes xterm can write directly. */
@@ -540,13 +535,15 @@ export interface TerminalViewHandle {
  *   written outside React (the failure banner, the exit status).
  * @param model - the shared UI model every surface reads and writes.
  * @param surface - which surface this engine belongs to.
+ * @param focus - cross-surface requests to move focus into the active console.
  * @returns the View component plus its teardown handles.
  */
 export function createTerminalView(
   bridge: WorkspaceBridge,
   t: Translate,
   model: TerminalUiModel,
-  surface: TerminalSurface = 'conversation',
+  surface: TerminalSurface,
+  focus: TerminalFocusBus,
 ): TerminalViewHandle {
   /** Live consoles; survives this View being unmounted. */
   const runtimes = new Map<string, Runtime>()
@@ -948,6 +945,9 @@ export function createTerminalView(
     // groups, the sidebar visibility and the common commands are the same
     // values in every surface.
     const ui = React.useSyncExternalStore(model.subscribe, model.getSnapshot, model.getSnapshot)
+    // Ctrl+J runs outside React: the bus carries the request this surface must
+    // turn into keyboard focus inside its active console.
+    const focusRequest = React.useSyncExternalStore(focus.subscribe, focus.getSnapshot, focus.getSnapshot)
     const { account, selection, expanded, sidebarCollapsed, commands } = ui
     const { setAccount, setSelection, setExpanded, setSidebarCollapsed, setCommands } = model
     const [sessionCwd, setSessionCwd] = React.useState('')
@@ -1172,6 +1172,36 @@ export function createTerminalView(
       // bumps it: the runtime this effect needs does not exist until the next
       // commit, so the first pass returns early and this pass starts the shell.
     }, [activeId, activeGroupKey, sessionId, version])
+
+    // A keyboard request can land on the console that is already active, where
+    // the effect above has nothing to re-run. The sidebar host focuses the pane
+    // after it commits the open, too, so the deferred retries let the console
+    // win that race rather than leaving the keyboard on the pane chrome.
+    React.useEffect(() => {
+      if (focusRequest === null || focusRequest.target !== surface) return
+      if (activeId === undefined) return
+      if (renamingRef.current !== null || headerRenameRef.current !== null || commandsOpenRef.current) return
+      const runtime = runtimes.get(activeId)
+      if (runtime === undefined || runtime.element === undefined) return
+      let cancelled = false
+      const focusConsole = (): void => {
+        if (cancelled || runtime.element?.isConnected !== true) return
+        runtime.term.focus()
+      }
+      const timer = window.setTimeout(() => {
+        focusConsole()
+        window.requestAnimationFrame(() => {
+          focusConsole()
+          window.requestAnimationFrame(focusConsole)
+        })
+      }, 0)
+      return () => {
+        cancelled = true
+        window.clearTimeout(timer)
+      }
+      // `focusRequest` is a fresh object per press, so this runs for every
+      // Ctrl+J even when the target surface and console did not change.
+    }, [focusRequest, activeId, surface])
 
     // A popup belongs to one console and one command list: switching either —
     // or opening the dialog that edits the list — dismisses it, so a

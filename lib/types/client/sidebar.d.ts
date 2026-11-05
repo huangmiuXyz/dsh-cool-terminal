@@ -12,6 +12,7 @@
  */
 import { type Translate } from './locales.js';
 import type { TerminalUiModel } from './model.js';
+import type { TerminalFocusBus } from './focus.js';
 import type { WorkspaceBridge } from './terminals.js';
 export interface SidebarDeps {
     readonly ctx: any;
@@ -21,6 +22,8 @@ export interface SidebarDeps {
     readonly locale: boolean;
     readonly bridge: WorkspaceBridge;
     readonly model: TerminalUiModel;
+    /** Ctrl+J (and any future command) asks this surface to focus its console. */
+    readonly focus: TerminalFocusBus;
 }
 /**
  * Register the sidebar type and its seats.

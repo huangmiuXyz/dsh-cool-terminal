@@ -22,6 +22,21 @@ export type TerminalAccount = Readonly<Record<string, readonly TerminalDef[]>>
 export const SESSION_KEY = '__session__'
 
 /**
+ * Compare directory spellings that differ only by trailing separators.
+ *
+ * The Host reports a Workspace path and a session workdir independently;
+ * `/work` and `/work/` are the same directory for the grouping decision. An
+ * all-separator path stays as written so `/` never normalizes away.
+ * @param value - path to compare.
+ * @returns the path without trailing separators.
+ */
+export function normalizePath(value: string): string {
+  if (value === '') return ''
+  const trimmed = value.replace(/[\\/]+$/, '')
+  return trimmed === '' ? value : trimmed
+}
+
+/**
  * One persisted account is enough: ids inside it are globally unique.
  *
  * v3 is a clean break from the earlier format, which seeded a `Default`
@@ -122,6 +137,36 @@ export function addTerminal(
   sequence += 1
   const id = `${key}:t${Date.now().toString(36)}${sequence.toString(36)}`
   return [...list, { id, title: titleOf(nextTerminalNumber(list)) }]
+}
+
+/** The console a one-key activation lands on, plus the account holding it. */
+export interface LastTerminalChoice {
+  readonly account: TerminalAccount
+  readonly terminal: TerminalDef
+}
+
+/**
+ * Pick the last console in one group, minting one when the group is empty.
+ *
+ * "Last" is list order, which is also creation order until the user drags a
+ * row: the newest console is what a one-key open should land on. The account
+ * identity is preserved when nothing was created, so the caller can skip
+ * persisting and notifying.
+ * @param account - current account.
+ * @param key - group key.
+ * @param titleOf - the name for a newly created console.
+ * @returns the (possibly extended) account and the console to select.
+ */
+export function lastOrNewTerminal(
+  account: TerminalAccount,
+  key: string,
+  titleOf: (number: number) => string = (number) => `Terminal ${number}`,
+): LastTerminalChoice {
+  const list = terminalsFor(account, key)
+  if (list.length > 0) return { account, terminal: list[list.length - 1] }
+  const next = addTerminal(list, key, titleOf)
+  const terminal = next[next.length - 1]
+  return { account: withTerminalList(account, key, next), terminal }
 }
 
 /**
@@ -344,6 +389,44 @@ export interface WorkspaceRow {
   readonly workspaceId: string
   readonly path: string
   readonly title: string
+  /** Session membership, read only to answer "which Workspace is current". */
+  readonly sessionIds?: readonly string[]
+}
+
+/** The fields that decide which group a session's terminals belong to. */
+export interface WorkspaceMembershipLike {
+  readonly workspaceId: string
+  readonly path: string
+  readonly sessionIds?: readonly string[]
+}
+
+/**
+ * The sidebar group a session's terminals belong to.
+ *
+ * Workspace membership wins because "current workspace" means the project the
+ * conversation lives in, not whichever subdirectory a shell happens to sit
+ * in. Only a session outside every Workspace falls back to the directory: an
+ * exact Workspace path names that Workspace, and any other directory is the
+ * session-only group whose key is {@link SESSION_KEY} — the same two rules
+ * that decide which rows the sidebar shows.
+ * @param items - live Workspace rows.
+ * @param sessionId - the session being opened for, when known.
+ * @param cwd - the session's own workdir, when known.
+ * @returns the group key, or undefined when neither source names one.
+ */
+export function groupKeyForSession(
+  items: readonly WorkspaceMembershipLike[],
+  sessionId: string | undefined,
+  cwd: string,
+): string | undefined {
+  if (sessionId !== undefined) {
+    const member = items.find((workspace) => workspace.sessionIds?.includes(sessionId) === true)
+    if (member !== undefined) return member.workspaceId
+  }
+  const normalized = normalizePath(cwd)
+  if (normalized === '') return undefined
+  const exact = items.find((workspace) => normalizePath(workspace.path) === normalized)
+  return exact === undefined ? SESSION_KEY : exact.workspaceId
 }
 
 /** The part of a Workspace snapshot this UI reads. */

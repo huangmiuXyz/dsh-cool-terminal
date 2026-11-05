@@ -20,6 +20,7 @@
 import * as React from 'react';
 import type { TerminalUiModel } from './model.js';
 import { type WorkspaceBridge } from './terminals.js';
+import type { TerminalFocusBus } from './focus.js';
 import type { Translate } from './locales.js';
 /** Which surface a terminal engine is mounted in. */
 export type TerminalSurface = 'conversation' | 'sidebar';
@@ -39,7 +40,8 @@ export interface TerminalViewHandle {
  *   written outside React (the failure banner, the exit status).
  * @param model - the shared UI model every surface reads and writes.
  * @param surface - which surface this engine belongs to.
+ * @param focus - cross-surface requests to move focus into the active console.
  * @returns the View component plus its teardown handles.
  */
-export declare function createTerminalView(bridge: WorkspaceBridge, t: Translate, model: TerminalUiModel, surface?: TerminalSurface): TerminalViewHandle;
+export declare function createTerminalView(bridge: WorkspaceBridge, t: Translate, model: TerminalUiModel, surface: TerminalSurface, focus: TerminalFocusBus): TerminalViewHandle;
 //# sourceMappingURL=terminal.d.ts.map

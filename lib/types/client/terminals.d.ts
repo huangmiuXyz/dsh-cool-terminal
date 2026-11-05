@@ -17,6 +17,16 @@ export interface TerminalDef {
 export type TerminalAccount = Readonly<Record<string, readonly TerminalDef[]>>;
 /** Group key of the pseudo console bound to the session's own workdir. */
 export declare const SESSION_KEY = "__session__";
+/**
+ * Compare directory spellings that differ only by trailing separators.
+ *
+ * The Host reports a Workspace path and a session workdir independently;
+ * `/work` and `/work/` are the same directory for the grouping decision. An
+ * all-separator path stays as written so `/` never normalizes away.
+ * @param value - path to compare.
+ * @returns the path without trailing separators.
+ */
+export declare function normalizePath(value: string): string;
 /** The active console: its group key plus the console id inside it. */
 export interface TerminalSelection {
     readonly key: string;
@@ -49,6 +59,24 @@ export declare function withTerminalList(account: TerminalAccount, key: string, 
  * @returns the next group list.
  */
 export declare function addTerminal(list: readonly TerminalDef[], key: string, titleOf?: (number: number) => string): TerminalDef[];
+/** The console a one-key activation lands on, plus the account holding it. */
+export interface LastTerminalChoice {
+    readonly account: TerminalAccount;
+    readonly terminal: TerminalDef;
+}
+/**
+ * Pick the last console in one group, minting one when the group is empty.
+ *
+ * "Last" is list order, which is also creation order until the user drags a
+ * row: the newest console is what a one-key open should land on. The account
+ * identity is preserved when nothing was created, so the caller can skip
+ * persisting and notifying.
+ * @param account - current account.
+ * @param key - group key.
+ * @param titleOf - the name for a newly created console.
+ * @returns the (possibly extended) account and the console to select.
+ */
+export declare function lastOrNewTerminal(account: TerminalAccount, key: string, titleOf?: (number: number) => string): LastTerminalChoice;
 /**
  * Rename one console; blank input is ignored rather than stored.
  * @param list - current group list.
@@ -141,7 +169,30 @@ export interface WorkspaceRow {
     readonly workspaceId: string;
     readonly path: string;
     readonly title: string;
+    /** Session membership, read only to answer "which Workspace is current". */
+    readonly sessionIds?: readonly string[];
 }
+/** The fields that decide which group a session's terminals belong to. */
+export interface WorkspaceMembershipLike {
+    readonly workspaceId: string;
+    readonly path: string;
+    readonly sessionIds?: readonly string[];
+}
+/**
+ * The sidebar group a session's terminals belong to.
+ *
+ * Workspace membership wins because "current workspace" means the project the
+ * conversation lives in, not whichever subdirectory a shell happens to sit
+ * in. Only a session outside every Workspace falls back to the directory: an
+ * exact Workspace path names that Workspace, and any other directory is the
+ * session-only group whose key is {@link SESSION_KEY} — the same two rules
+ * that decide which rows the sidebar shows.
+ * @param items - live Workspace rows.
+ * @param sessionId - the session being opened for, when known.
+ * @param cwd - the session's own workdir, when known.
+ * @returns the group key, or undefined when neither source names one.
+ */
+export declare function groupKeyForSession(items: readonly WorkspaceMembershipLike[], sessionId: string | undefined, cwd: string): string | undefined;
 /** The part of a Workspace snapshot this UI reads. */
 export interface WorkspaceSnapshotLike {
     readonly items: readonly WorkspaceRow[];
