@@ -58,6 +58,9 @@ export const en = {
   'commands.save': 'Save',
   'commands.close': 'Close',
   'completion.footer': '↑↓ select · Enter fill · Esc close',
+  'shortcut.open': 'Open or focus the current workspace terminal',
+  'shortcut.noSession': 'This shortcut needs an open session',
+  'shortcut.unavailable': 'The terminal panel is unavailable',
 } as const
 
 /** Simplified Chinese copy; must cover every English key. */
@@ -106,6 +109,9 @@ export const zh: Record<keyof typeof en, string> = {
   'commands.save': '保存',
   'commands.close': '关闭',
   'completion.footer': '↑↓ 选择 · Enter 填充 · Esc 关闭',
+  'shortcut.open': '打开或聚焦当前工作区终端',
+  'shortcut.noSession': '此快捷键需要先打开一个会话',
+  'shortcut.unavailable': '终端面板不可用',
 }
 
 /** One translatable key of this package. */

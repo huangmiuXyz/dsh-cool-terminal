@@ -11,7 +11,7 @@ import { createTerminalView } from './terminal.js'
 import { createTerminalUiModel } from './model.js'
 import { createTerminalFocusBus } from './focus.js'
 import { registerSidebarTerminal } from './sidebar.js'
-import { registerTerminalShortcut } from './shortcuts.js'
+import { registerTerminalCommand, registerTerminalShortcut } from './shortcuts.js'
 import { createWorkspaceBridge } from './terminals.js'
 import { insertTerminalStyles } from './styles.js'
 import {
@@ -104,22 +104,38 @@ export function apply(ctx: any) {
   // One shared UI model: the conversation tab and every sidebar body read the
   // same console list, selection, expansion and commands.
   const model = createTerminalUiModel(t('terminal.untitled'))
-  // One focus bus shared by every surface: Ctrl+J lives outside React and has
-  // to reach whichever terminal body is mounted, including one that mounts
-  // only after the key was pressed.
+  // One focus bus shared by every surface: the shortcut lives outside React
+  // and has to reach whichever terminal body is mounted, including one that
+  // mounts only after the key was pressed.
   const focus = createTerminalFocusBus()
 
   const conversation = createTerminalView(bridge, t, model, 'conversation', focus)
   ctx.effect(() => () => conversation.dispose(), 'dsh-cool-terminal: terminal teardown')
   const { View } = conversation
 
-  // Ctrl+J opens the workbench in the right sidebar for the session's current
+  // The command opens or focuses the workbench for the session's current
   // Workspace, selects its last console (creating one when empty) and puts the
-  // keyboard inside it. The listeners in `shortcuts.ts` clean up with the
-  // plugin fiber, so a reload cannot leave a second handler behind.
+  // keyboard inside it.
+  //
+  // macOS and Windows Desktop register through DSH's shortcut service, so
+  // Command+J / Ctrl+J appear in the cheatsheet and follow the user's keymap.
+  // The service rejects single-modifier Web bindings, and this command has no
+  // desktop Linux default, so those runtimes keep the window-listener fallback.
+  // Every registration cleans up with its own fiber, so a reload cannot leave
+  // a second handler behind.
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['shortcuts'], (shortcutCtx: any) => {
+      const shortcuts = shortcutCtx.get('shortcuts')
+      if (shortcuts === undefined || typeof shortcuts.register !== 'function') return
+      shortcutCtx.effect(
+        () => registerTerminalCommand({ ctx, t, model, bridge, focus, shortcuts }),
+        'dsh-cool-terminal: Mod+J command',
+      )
+    })
+  }
   ctx.effect(
     () => registerTerminalShortcut({ ctx, t, model, bridge, focus }),
-    'dsh-cool-terminal: Ctrl+J shortcut',
+    'dsh-cool-terminal: Mod+J fallback',
   )
 
   const entry: Record<string, unknown> = {

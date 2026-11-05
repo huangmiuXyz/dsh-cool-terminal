@@ -21,7 +21,7 @@ DeepSeek Harness terminal plugin — a real shell, workspace sync, persistent st
 - **Inline command completion** — Typing in a console pops matching common commands up under the caret; hovering a row or pressing `↑`/`↓` selects one, and `Enter` fills it into the command line without running it.
 - **Bilingual (English / Chinese)** — Every string the plugin renders follows DSH's language setting and switches live, with new console names minted in the language on screen.
 - **Right sidebar** — The same terminal workbench is also a dockable right-sidebar tab; switching sessions or collapsing the panel keeps every shell running.
-- **One-key terminal (`Command+J` / `Ctrl+J`)** — Opens or focuses the current workspace's terminal (the visible workbench when one is on screen, otherwise the right sidebar) and focuses its last console, creating one when the workspace has none. macOS uses `Command+J`; Windows and Linux use `Ctrl+J`. Inside a running console the chord is left to xterm (where `Ctrl+J` remains the shell's line feed on Windows and Linux).
+- **One-key terminal (`Command+J` / `Ctrl+J`)** — Opens or focuses the current workspace's terminal (the visible workbench when one is on screen, otherwise the right sidebar) and focuses its last console, creating one when the workspace has none. macOS uses `Command+J`; Windows and Linux use `Ctrl+J`.
 
 ## Installation
 
@@ -33,7 +33,7 @@ Use DSH's add-plugin feature and enter the package name: `dsh-cool-terminal`.
 - Consoles are process-local and do not survive a DSH restart.
 - A console's size follows the pane that currently shows it; when the same console is visible in two places at once, the last pane to re-measure wins.
 - The right-sidebar tab is opened once per session from the guide page; the layout belongs to that session.
-- `Command+J` / `Ctrl+J` is a direct window binding rather than a DSH shortcut-service command, because the service rejects single-modifier Web bindings; it therefore does not appear in the keyboard-shortcuts cheatsheet and cannot be remapped.
+- On macOS and Windows Desktop the chord is registered through DSH's shortcut service, so it appears in the keyboard-shortcuts cheatsheet and can be remapped. The Web build and desktop Linux cannot bind a single-modifier Web chord through that service, so they keep a direct window binding: it is not listed in the cheatsheet and cannot be remapped. On Windows Desktop the native binding takes priority over terminal input, so `Ctrl+J` no longer reaches the shell as a line feed there; the fallback used on Web and Linux leaves the chord to xterm.
 - Closing the terminal tab detaches its screen but does not end the shells; they are ended by deleting a console or unloading the plugin.
 
 ## Contributing

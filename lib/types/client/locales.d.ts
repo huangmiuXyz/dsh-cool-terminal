@@ -56,6 +56,9 @@ export declare const en: {
     readonly 'commands.save': "Save";
     readonly 'commands.close': "Close";
     readonly 'completion.footer': "↑↓ select · Enter fill · Esc close";
+    readonly 'shortcut.open': "Open or focus the current workspace terminal";
+    readonly 'shortcut.noSession': "This shortcut needs an open session";
+    readonly 'shortcut.unavailable': "The terminal panel is unavailable";
 };
 /** Simplified Chinese copy; must cover every English key. */
 export declare const zh: Record<keyof typeof en, string>;
