@@ -1,13 +1,11 @@
 /**
- * The Ctrl+J terminal command.
+ * The Mod+J terminal command: Command+J on macOS, Ctrl+J elsewhere.
  *
- * DSH's shortcut service deliberately refuses single-modifier Web bindings:
- * Ctrl+J is the browser's download panel, and the service rejects it as an
- * unsupported Web default before it could ever appear in the cheatsheet. The
- * requested binding is exactly that key, so this command owns a window listener
- * instead. It consumes the browser default, stays away from xterm (where
- * Ctrl+J is a line feed for the shell), and leaves modal keyboard handling
- * alone.
+ * DSH's shortcut service deliberately refuses single-modifier Web bindings, so
+ * it would reject the binding before it could ever appear in the cheatsheet.
+ * The requested combination is exactly that key, so this command owns a window
+ * listener instead. It consumes the browser default, leaves xterm alone so the
+ * shell keeps its input, and leaves modal keyboard handling alone.
  */
 
 import { fetchContext } from './api.js'
@@ -97,22 +95,35 @@ export function registerTerminalShortcut(deps: TerminalShortcutDeps): () => void
 }
 
 /**
- * True for the physical Ctrl+J chord on every platform.
+ * True for the physical Mod+J chord on this platform.
  *
  * `code` is the physical key so the binding survives non-Latin layouts; the
- * `key` fallback covers synthetic events that do not carry a code. Ctrl, not
- * Mod, is deliberate: the request is Control+J even on macOS, where Command+J
- * remains a browser/app shortcut of its own.
+ * `key` fallback covers synthetic events that do not carry a code. macOS uses
+ * Command, matching the platform's shortcut convention; every other platform
+ * uses Control.
  * @param event - candidate keyboard event.
- * @returns whether this is the unmodified Ctrl+J chord.
+ * @returns whether this is the unmodified Mod+J chord.
  */
 function isTerminalShortcut(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.isComposing) return false
-  if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false
+  if (event.altKey || event.shiftKey) return false
+  if (isMacPlatform()) {
+    if (!event.metaKey || event.ctrlKey) return false
+  } else if (!event.ctrlKey || event.metaKey) {
+    return false
+  }
   return event.code === 'KeyJ' || (typeof event.key === 'string' && event.key.toLowerCase() === 'j')
 }
 
-/** A console owns Ctrl+J while focus is inside xterm: it is a line feed there. */
+/** Whether this browser runs on macOS, where Command, not Control, is the modifier. */
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const platform = navigator.platform
+  if (typeof platform === 'string' && platform !== '') return platform.startsWith('Mac')
+  return /Macintosh|Mac OS X/i.test(navigator.userAgent)
+}
+
+/** A console owns the chord while focus is inside xterm; the shell keeps its input. */
 function isInsideTerminal(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('.xterm') !== null
 }

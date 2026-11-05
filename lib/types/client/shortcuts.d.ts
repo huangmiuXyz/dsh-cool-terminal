@@ -1,13 +1,11 @@
 /**
- * The Ctrl+J terminal command.
+ * The Mod+J terminal command: Command+J on macOS, Ctrl+J elsewhere.
  *
- * DSH's shortcut service deliberately refuses single-modifier Web bindings:
- * Ctrl+J is the browser's download panel, and the service rejects it as an
- * unsupported Web default before it could ever appear in the cheatsheet. The
- * requested binding is exactly that key, so this command owns a window listener
- * instead. It consumes the browser default, stays away from xterm (where
- * Ctrl+J is a line feed for the shell), and leaves modal keyboard handling
- * alone.
+ * DSH's shortcut service deliberately refuses single-modifier Web bindings, so
+ * it would reject the binding before it could ever appear in the cheatsheet.
+ * The requested combination is exactly that key, so this command owns a window
+ * listener instead. It consumes the browser default, leaves xterm alone so the
+ * shell keeps its input, and leaves modal keyboard handling alone.
  */
 import type { TerminalFocusBus } from './focus.js';
 import type { Translate } from './locales.js';
